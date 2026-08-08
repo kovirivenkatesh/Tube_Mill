@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import dns from "node:dns";
 import { submissionDetailRows } from "./lib/submissionHelpers.js";
 import { reviewsForSubmission } from "./lib/supervisorReviews.js";
 
@@ -57,6 +58,11 @@ export function getSmtpTransportOptions() {
     connectionTimeout: 60_000,
     greetingTimeout: 30_000,
     socketTimeout: 120_000,
+    // Render/cloud hosts often fail Gmail over IPv6 (ENETUNREACH); force IPv4.
+    family: 4,
+    lookup: (hostname, _opts, callback) => {
+      dns.lookup(hostname, { family: 4 }, callback);
+    },
   };
 
   if (port === 587 && !secure) {

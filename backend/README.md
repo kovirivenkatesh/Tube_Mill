@@ -50,3 +50,5 @@ In **Render → your web service → Environment** (not only local `.env`), set:
 Redeploy Render after saving. **Old emails** still contain old localhost links; submit a **new** report to get correct links.
 
 Local `backend/.env` can keep `PUBLIC_APP_URL=http://localhost:5173` for dev.
+
+**Gmail on Render:** If you see `ENETUNREACH` or timeout on port 587, set `SMTP_PORT=465` and `SMTP_SECURE=SSL` in Render Environment and redeploy. The API forces IPv4 for SMTP.

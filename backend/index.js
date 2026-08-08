@@ -307,10 +307,11 @@ app.post("/api/submissions", authMiddleware, async (req, res) => {
     } else if (
       message.includes("Connection timeout") ||
       message.includes("ETIMEDOUT") ||
-      message.includes("ESOCKET")
+      message.includes("ESOCKET") ||
+      message.includes("ENETUNREACH")
     ) {
       message =
-        "Could not connect to Gmail SMTP (timeout). On Render, add all SMTP_* vars in the dashboard. Try SMTP_PORT=587 and SMTP_SECURE=false. Report was saved.";
+        "Could not reach Gmail SMTP from the server. On Render use SMTP_PORT=465 and SMTP_SECURE=SSL (or 587 + false), redeploy after env changes. Report was saved.";
     } else if (message.includes("SMTP is not configured")) {
       message =
         "SMTP is not configured on this server. Add SMTP_HOST, SMTP_USER, SMTP_PASS to Render Environment (or backend/.env locally). Report was saved.";
