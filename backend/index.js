@@ -17,7 +17,7 @@ import {
   getSubmissionsByUserId,
   updatePasswordByEmail,
 } from "./data/store.js";
-import { sendSupervisorApprovalEmail, isEmailConfigured, verifySmtpConnection, warnIfEmailLinksMisconfigured, getAppPublicUrl } from "./email.js";
+import { sendSupervisorApprovalEmail, isEmailConfigured, verifyEmailTransport, warnIfEmailLinksMisconfigured, getAppPublicUrl } from "./email.js";
 import { createConfigRouter, createAdminConfigRouter } from "./routes/configRoutes.js";
 import {
   buildSupervisorReviews,
@@ -311,7 +311,9 @@ app.post("/api/submissions", authMiddleware, async (req, res) => {
       message.includes("ENETUNREACH")
     ) {
       message =
-        "Could not reach Gmail SMTP from the server. On Render use SMTP_PORT=465 and SMTP_SECURE=SSL (or 587 + false), redeploy after env changes. Report was saved.";
+        "Gmail SMTP failed from the cloud server. On Render, add RESEND_API_KEY (resend.com — free tier) and redeploy; keep SMTP for local dev only. Report was saved.";
+    } else if (message.startsWith("Resend:")) {
+      message = `${message} Report was saved.`;
     } else if (message.includes("SMTP is not configured")) {
       message =
         "SMTP is not configured on this server. Add SMTP_HOST, SMTP_USER, SMTP_PASS to Render Environment (or backend/.env locally). Report was saved.";
@@ -457,16 +459,15 @@ async function start() {
       );
       return;
     }
-    verifySmtpConnection()
-      .then(() => {
-        console.log("[email] SMTP ready (real email enabled)");
-        warnIfEmailLinksMisconfigured();
-      })
+    verifyEmailTransport()
+      .then(() => warnIfEmailLinksMisconfigured())
       .catch((err) => {
-        console.error("[email] SMTP connection failed:", err.message);
-        console.error(
-          "[email] Gmail SSL: SMTP_PORT=465 and SMTP_SECURE=SSL (or true). Gmail STARTTLS: SMTP_PORT=587 and SMTP_SECURE=false"
-        );
+        console.error("[email] Email transport failed:", err.message);
+        if (!process.env.RESEND_API_KEY?.trim()) {
+          console.error(
+            "[email] For Render production, set RESEND_API_KEY. Local dev: SMTP_PORT=465, SMTP_SECURE=SSL."
+          );
+        }
       });
   });
 

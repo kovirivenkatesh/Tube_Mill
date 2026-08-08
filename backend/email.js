@@ -10,6 +10,10 @@ export function getAppPublicUrl() {
   return APP_PUBLIC_URL.replace(/\/$/, "");
 }
 
+function useResendApi() {
+  return Boolean(process.env.RESEND_API_KEY?.trim());
+}
+
 /** Warn when deployed API still points email links at localhost. */
 export function warnIfEmailLinksMisconfigured() {
   if (!isEmailConfigured()) return;
@@ -19,14 +23,18 @@ export function warnIfEmailLinksMisconfigured() {
     const where = onRender ? "Render Environment" : "backend/.env";
     console.warn(
       `[email] PUBLIC_APP_URL is "${url}" — supervisor emails will use that host. ` +
-        `For production, set PUBLIC_APP_URL to your Vercel site (https://your-app.vercel.app) in ${where}, then redeploy.`
+        `Set PUBLIC_APP_URL to your Vercel site (https://tube-mill.vercel.app) in ${where}, then redeploy.`
+    );
+  }
+  if (onRender && !useResendApi()) {
+    console.warn(
+      "[email] Render often cannot reach Gmail SMTP. Add RESEND_API_KEY on Render (free at resend.com) — see backend/README.md."
     );
   }
 }
 
 let transporter = null;
 
-/** Gmail: 465 + SSL (secure), or 587 + STARTTLS (secure false). Accepts SSL/TLS/true/false in .env */
 export function getSmtpTransportOptions() {
   const host = process.env.SMTP_HOST?.trim();
   const user = process.env.SMTP_USER?.trim();
@@ -58,7 +66,6 @@ export function getSmtpTransportOptions() {
     connectionTimeout: 60_000,
     greetingTimeout: 30_000,
     socketTimeout: 120_000,
-    // Render/cloud hosts often fail Gmail over IPv6 (ENETUNREACH); force IPv4.
     family: 4,
     lookup: (hostname, _opts, callback) => {
       dns.lookup(hostname, { family: 4 }, callback);
@@ -78,9 +85,19 @@ function getTransporter() {
   return transporter;
 }
 
-export async function verifySmtpConnection() {
+async function verifySmtpConnection() {
   const transport = getTransporter();
   await transport.verify();
+}
+
+/** Startup check — Resend (HTTPS) or SMTP. */
+export async function verifyEmailTransport() {
+  if (useResendApi()) {
+    console.log("[email] Resend API configured (HTTPS — used for sending on production)");
+    return;
+  }
+  await verifySmtpConnection();
+  console.log("[email] SMTP ready (real email enabled)");
 }
 
 function escapeHtml(text) {
@@ -117,7 +134,7 @@ function buildEmailImageAttachments(images) {
   list.forEach((dataUrl, index) => {
     const parsed = parseImageDataUrl(dataUrl);
     if (!parsed) return;
-    const cid = `issue-photo-${index}@tubemill`;
+    const cid = `issue-photo-${index}`;
     const ext = extensionForMime(parsed.contentType);
     attachments.push({
       filename: `issue-photo-${index + 1}.${ext}`,
@@ -130,6 +147,74 @@ function buildEmailImageAttachments(images) {
   return { attachments, htmlBlock };
 }
 
+function getFromAddress(submitter) {
+  if (useResendApi()) {
+    return (
+      process.env.EMAIL_FROM?.trim() ||
+      process.env.RESEND_FROM?.trim() ||
+      "Tube Mill Reports <onboarding@resend.dev>"
+    );
+  }
+  const forceFromAccount = process.env.SMTP_FORCE_FROM_ACCOUNT !== "false";
+  const fromAddress = forceFromAccount ? process.env.SMTP_USER.trim() : submitter.email;
+  return `"${submitter.name}" <${fromAddress}>`;
+}
+
+async function sendViaResend({ to, subject, html, replyTo, attachments }) {
+  const key = process.env.RESEND_API_KEY.trim();
+  const from = getFromAddress({ name: "", email: replyTo });
+
+  const payload = {
+    from,
+    to: [to],
+    subject,
+    html,
+    reply_to: replyTo,
+  };
+
+  if (attachments?.length) {
+    payload.attachments = attachments.map((a) => ({
+      filename: a.filename,
+      content: a.content.toString("base64"),
+      content_id: a.cid,
+    }));
+  }
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data.message || data.error || JSON.stringify(data) || res.statusText;
+    throw new Error(`Resend: ${msg}`);
+  }
+  return data.id;
+}
+
+async function sendViaSmtp({ to, subject, html, replyTo, attachments, from }) {
+  const transport = getTransporter();
+  const info = await transport.sendMail({
+    from,
+    to,
+    replyTo,
+    subject,
+    html,
+    attachments: attachments.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      contentType: a.contentType,
+      cid: a.cid,
+    })),
+  });
+  return info.messageId;
+}
+
 export async function sendSupervisorApprovalEmail(submission, supervisorEmails, submitter) {
   const recipients = Array.isArray(supervisorEmails)
     ? supervisorEmails
@@ -137,12 +222,9 @@ export async function sendSupervisorApprovalEmail(submission, supervisorEmails, 
   if (!recipients.length) {
     throw new Error("No supervisor email addresses provided.");
   }
-  const transport = getTransporter();
 
-  const forceFromAccount = process.env.SMTP_FORCE_FROM_ACCOUNT !== "false";
-  const fromAddress = forceFromAccount ? process.env.SMTP_USER.trim() : submitter.email;
-  const from = `"${submitter.name}" <${fromAddress}>`;
-
+  const from = getFromAddress(submitter);
+  const replyTo = `"${submitter.name}" <${submitter.email}>`;
   const { attachments, htmlBlock: photosHtml } = buildEmailImageAttachments(submission.images);
 
   const detailRows = submissionDetailRows(submission);
@@ -175,34 +257,46 @@ export async function sendSupervisorApprovalEmail(submission, supervisorEmails, 
     <p><strong>Tube mill:</strong> ${escapeHtml(submission.tubeMill)}</p>
     ${fieldsHtml}
     ${photosHtml}
-    <p style="margin:16px 0 8px;color:#64748b;font-size:13px;">This link is for <strong>${escapeHtml(email)}</strong>. Other supervisors receive their own review links.</p>
+    <p style="margin:16px 0 8px;color:#64748b;font-size:13px;">This link is for <strong>${escapeHtml(email)}</strong>.</p>
     <p style="margin:24px 0 16px;">
       <a href="${approveUrl}" style="display:inline-block;padding:12px 22px;background:#059669;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;margin-right:10px;">Approve</a>
       <a href="${rejectUrl}" style="display:inline-block;padding:12px 22px;background:#dc2626;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Reject</a>
     </p>
-    <p style="margin:0 0 8px;font-weight:600;">Supervisor comment</p>
-    <p style="color:#64748b;font-size:13px;margin:0 0 12px;">Open the review page to add your comment and submit your decision.</p>
     <p><a href="${reviewUrl}" style="display:inline-block;padding:10px 20px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;">Review &amp; submit</a></p>
-    <p style="color:#666;font-size:12px;margin-top:16px;">Your review link: ${reviewUrl}</p>
-    <p style="color:#666;font-size:11px;">Keep npm run dev running on the PC where the app runs. Links use localhost unless PUBLIC_APP_URL is set.</p>
+    <p style="color:#666;font-size:12px;margin-top:16px;">Review link: ${reviewUrl}</p>
   `;
 
-    const info = await transport.sendMail({
-      from,
-      to: email,
-      replyTo: `"${submitter.name}" <${submitter.email}>`,
-      subject: `[Pending] Issue – ${submission.dept} –  ${submission.tubeMill}`,
-      html,
-      attachments,
-    });
-    messageIds.push(info.messageId);
-    console.log("[email] Sent to", email, "review URL:", reviewUrl);
+    const subject = `[Pending] Issue – ${submission.dept} – ${submission.tubeMill}`;
+
+    let id;
+    if (useResendApi()) {
+      id = await sendViaResend({
+        to: email,
+        subject,
+        html,
+        replyTo: submitter.email,
+        attachments,
+      });
+    } else {
+      id = await sendViaSmtp({
+        to: email,
+        subject,
+        html,
+        replyTo,
+        attachments,
+        from,
+      });
+    }
+
+    messageIds.push(id);
+    console.log("[email] Sent to", email, "via", useResendApi() ? "Resend" : "SMTP", "review URL:", reviewUrl);
   }
 
   return { messageIds };
 }
 
 export function isEmailConfigured() {
+  if (useResendApi()) return true;
   const pass = (process.env.SMTP_PASS || "").replace(/\s/g, "");
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && pass);
 }

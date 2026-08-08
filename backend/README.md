@@ -51,4 +51,16 @@ Redeploy Render after saving. **Old emails** still contain old localhost links; 
 
 Local `backend/.env` can keep `PUBLIC_APP_URL=http://localhost:5173` for dev.
 
-**Gmail on Render:** If you see `ENETUNREACH` or timeout on port 587, set `SMTP_PORT=465` and `SMTP_SECURE=SSL` in Render Environment and redeploy. The API forces IPv4 for SMTP.
+**Gmail on Render:** Gmail SMTP often fails on Render (`ENETUNREACH`). Use **Resend** instead:
+
+1. Create a free account at [resend.com](https://resend.com) → **API Keys** → create a key.
+2. On **Render → Environment** add:
+   - `RESEND_API_KEY` = `re_…`
+   - `EMAIL_FROM` = `Tube Mill Reports <onboarding@resend.dev>` (or your verified domain)
+3. **Redeploy** Render.
+
+Free Resend can send from `onboarding@resend.dev` to **your Resend signup email** only until you verify a domain. For real supervisors, verify a domain in Resend or upgrade.
+
+Keep **SMTP_*** in Render for reference, but when `RESEND_API_KEY` is set, the app sends via **HTTPS**, not SMTP.
+
+Also on Render set `PUBLIC_APP_URL=https://tube-mill.vercel.app` (no trailing slash). Remove or ignore `API_URL` / `APP_URL` localhost values on Render.
