@@ -5,6 +5,24 @@ import { reviewsForSubmission } from "./lib/supervisorReviews.js";
 const APP_PUBLIC_URL =
   process.env.PUBLIC_APP_URL || process.env.APP_URL || "http://localhost:5173";
 
+export function getAppPublicUrl() {
+  return APP_PUBLIC_URL.replace(/\/$/, "");
+}
+
+/** Warn when deployed API still points email links at localhost. */
+export function warnIfEmailLinksMisconfigured() {
+  if (!isEmailConfigured()) return;
+  const url = getAppPublicUrl();
+  const onRender = Boolean(process.env.RENDER);
+  if (url.includes("localhost") || url.includes("127.0.0.1")) {
+    const where = onRender ? "Render Environment" : "backend/.env";
+    console.warn(
+      `[email] PUBLIC_APP_URL is "${url}" — supervisor emails will use that host. ` +
+        `For production, set PUBLIC_APP_URL to your Vercel site (https://your-app.vercel.app) in ${where}, then redeploy.`
+    );
+  }
+}
+
 let transporter = null;
 
 /** Gmail: 465 + SSL (secure), or 587 + STARTTLS (secure false). Accepts SSL/TLS/true/false in .env */
@@ -140,7 +158,7 @@ export async function sendSupervisorApprovalEmail(submission, supervisorEmails, 
       reviews.find((r) => r.email === rawEmail.trim()) ||
       reviews[0];
     const token = review?.approveToken || submission.approveToken;
-    const reviewUrl = `${APP_PUBLIC_URL}/approve/${token}`;
+    const reviewUrl = `${getAppPublicUrl()}/approve/${token}`;
     const approveUrl = `${reviewUrl}?intent=approve`;
     const rejectUrl = `${reviewUrl}?intent=reject`;
 

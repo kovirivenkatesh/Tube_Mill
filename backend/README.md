@@ -36,4 +36,17 @@ Reads `data/files/users.json` and `submissions.json` if present.
 ## SMTP
 
 Gmail: use an [App Password](https://support.google.com/accounts/answer/185833).  
-Supervisor review links use `PUBLIC_APP_URL` (or `APP_URL`), e.g. `{PUBLIC_APP_URL}/approve/:token`.
+Supervisor **Approve / Reject** links in email use **`PUBLIC_APP_URL`**, e.g. `{PUBLIC_APP_URL}/approve/:token`.
+
+### Production (Render + Vercel)
+
+In **Render → your web service → Environment** (not only local `.env`), set:
+
+| Variable | Value |
+|----------|--------|
+| `PUBLIC_APP_URL` | Your **Vercel** site URL, e.g. `https://tube-mill.vercel.app` (no trailing slash) |
+| `APP_URL` | Same as above (optional fallback) |
+
+Redeploy Render after saving. **Old emails** still contain old localhost links; submit a **new** report to get correct links.
+
+Local `backend/.env` can keep `PUBLIC_APP_URL=http://localhost:5173` for dev.

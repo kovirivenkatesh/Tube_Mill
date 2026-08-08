@@ -17,7 +17,7 @@ import {
   getSubmissionsByUserId,
   updatePasswordByEmail,
 } from "./data/store.js";
-import { sendSupervisorApprovalEmail, isEmailConfigured, verifySmtpConnection } from "./email.js";
+import { sendSupervisorApprovalEmail, isEmailConfigured, verifySmtpConnection, warnIfEmailLinksMisconfigured, getAppPublicUrl } from "./email.js";
 import { createConfigRouter, createAdminConfigRouter } from "./routes/configRoutes.js";
 import {
   buildSupervisorReviews,
@@ -432,7 +432,7 @@ app.post("/api/review/:token", async (req, res) => {
 
 /** Legacy one-click approve links redirect to the review page in the browser. */
 app.get("/api/approve/:token", async (req, res) => {
-  const appUrl = process.env.PUBLIC_APP_URL || process.env.APP_URL || "http://localhost:5173";
+  const appUrl = getAppPublicUrl();
   const reviewUrl = `${appUrl}/approve/${encodeURIComponent(req.params.token)}`;
   const wantsJson =
     req.headers.accept?.includes("application/json") || req.query.format === "json";
@@ -457,7 +457,10 @@ async function start() {
       return;
     }
     verifySmtpConnection()
-      .then(() => console.log("[email] SMTP ready (real email enabled)"))
+      .then(() => {
+        console.log("[email] SMTP ready (real email enabled)");
+        warnIfEmailLinksMisconfigured();
+      })
       .catch((err) => {
         console.error("[email] SMTP connection failed:", err.message);
         console.error(
