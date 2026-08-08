@@ -1,4 +1,18 @@
-const API = import.meta.env.VITE_API_BASE || "/api";
+const API_BASE = (import.meta.env.VITE_API_BASE || "/api").replace(/\/$/, "");
+
+function normalizeApiBase(base) {
+  if (!base.startsWith("http")) return base;
+  if (base.endsWith("/api") || base.includes("/api/")) return base;
+  return `${base}/api`;
+}
+
+const RESOLVED_API_BASE = normalizeApiBase(API_BASE);
+
+/** Build full API URL. Paths must start with /auth/..., /submissions, etc. (base includes /api). */
+export function getApiUrl(path) {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${RESOLVED_API_BASE}${p}`;
+}
 
 export function getToken() {
   return localStorage.getItem("token");
@@ -30,9 +44,17 @@ async function request(path, options = {}) {
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${API}${path}`, { ...options, headers });
+  const res = await fetch(getApiUrl(path), { ...options, headers });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  if (!res.ok) {
+    const msg = data.error || res.statusText;
+    if (res.status === 404 && !data.error) {
+      throw new Error(
+        "API route not found. Check VITE_API_BASE ends with /api (e.g. https://your-app.onrender.com/api)."
+      );
+    }
+    throw new Error(msg);
+  }
   return data;
 }
 

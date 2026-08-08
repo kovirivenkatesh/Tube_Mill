@@ -285,6 +285,15 @@ app.post("/api/submissions", authMiddleware, async (req, res) => {
   };
 
   try {
+    await addSubmission(submission);
+  } catch (err) {
+    console.error("[submission]", err);
+    return res.status(500).json({
+      error: "Could not save the report. Check MongoDB connection.",
+    });
+  }
+
+  try {
     await sendSupervisorApprovalEmail(submission, toSupervisors, {
       name: submission.submittedByName,
       email: submission.submittedByEmail,
@@ -295,17 +304,20 @@ app.post("/api/submissions", authMiddleware, async (req, res) => {
     if (message.includes("BadCredentials") || message.includes("535")) {
       message =
         "Gmail rejected SMTP login. Use an App Password (not your normal password), 2-Step Verification on, and SMTP_USER matching that Gmail account.";
+    } else if (
+      message.includes("Connection timeout") ||
+      message.includes("ETIMEDOUT") ||
+      message.includes("ESOCKET")
+    ) {
+      message =
+        "Could not connect to Gmail SMTP (timeout). On Render, add all SMTP_* vars in the dashboard. Try SMTP_PORT=587 and SMTP_SECURE=false. Report was saved.";
+    } else if (message.includes("SMTP is not configured")) {
+      message =
+        "SMTP is not configured on this server. Add SMTP_HOST, SMTP_USER, SMTP_PASS to Render Environment (or backend/.env locally). Report was saved.";
     }
-    return res.status(502).json({ error: message });
-  }
-
-  try {
-    await addSubmission(submission);
-  } catch (err) {
-    console.error("[submission]", err);
-    return res.status(500).json({
-      error:
-        "Approval email was sent, but saving the report failed. Restart the API server and try again, or ask an admin to check the server log.",
+    return res.status(502).json({
+      error: message,
+      submission: sanitizeSubmission(submission),
     });
   }
   const freshUser = await getUserById(req.user.id);

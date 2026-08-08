@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { SkeletonText } from "../components/skeleton/Skeleton";
 import { SubmissionImages } from "../components/ReportImageAttachments";
 import { getSubmissionFieldRows } from "../utils/submissionDisplay";
+import { getApiUrl } from "../api";
 
 export default function ApprovePage() {
   const { token } = useParams();
@@ -29,7 +30,7 @@ export default function ApprovePage() {
       return;
     }
 
-    fetch(`/api/review/${encodeURIComponent(token)}`, {
+    fetch(getApiUrl(`/review/${encodeURIComponent(token)}`), {
       headers: { Accept: "application/json" },
     })
       .then(async (res) => {
@@ -91,7 +92,7 @@ export default function ApprovePage() {
     }
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/review/${encodeURIComponent(token)}`, {
+      const res = await fetch(getApiUrl(`/review/${encodeURIComponent(token)}`), {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ action: modalAction, comment: trimmed }),

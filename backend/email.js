@@ -36,6 +36,9 @@ export function getSmtpTransportOptions() {
     port,
     secure,
     auth: { user, pass },
+    connectionTimeout: 60_000,
+    greetingTimeout: 30_000,
+    socketTimeout: 120_000,
   };
 
   if (port === 587 && !secure) {
